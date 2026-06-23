@@ -18,20 +18,28 @@ function repoOf(abs: string, base: string): { repo: string; rel: string } {
   return { repo: sub || basename(base) || ".", rel };
 }
 
+// Bounded-depth scan: probe `.claude/workflows` at the base and up to MAX_DEPTH
+// dirs below it, rather than a single `**/.claude/...` glob — that descends into
+// every repo's src/vendor/node_modules and takes ~minutes on a big tree. Bounding
+// the prefix keeps it tens of ms even from a parent-of-many-repos. `.claude` dirs
+// found at deeper nesting (rare) are missed by design; run cwviz inside that repo.
+const MAX_DEPTH = 4;
+
 export async function discover(base: string): Promise<WorkflowGraph[]> {
-  const glob = new Glob("**/.claude/workflows/**/*.js");
+  const seen = new Set<string>();
   const out: WorkflowGraph[] = [];
-  for await (const rel of glob.scan({ cwd: base, onlyFiles: true, dot: true })) {
-    if (SKIP.test("/" + rel)) continue;
-    const abs = `${base}/${rel}`;
-    let source: string;
-    try {
-      source = readFileSync(abs, "utf8");
-    } catch {
-      continue;
+  for (let d = 0; d <= MAX_DEPTH; d++) {
+    const prefix = "*/".repeat(d);
+    const glob = new Glob(`${prefix}.claude/workflows/**/*.js`);
+    for await (const rel of glob.scan({ cwd: base, onlyFiles: true, dot: true })) {
+      if (SKIP.test("/" + rel) || seen.has(rel)) continue;
+      seen.add(rel);
+      const abs = `${base}/${rel}`;
+      let source: string;
+      try { source = readFileSync(abs, "utf8"); } catch { continue; }
+      const { repo, rel: wfRel } = repoOf(abs, base);
+      out.push(analyzeWorkflow(abs, source, repo, wfRel));
     }
-    const { repo, rel: wfRel } = repoOf(abs, base);
-    out.push(analyzeWorkflow(abs, source, repo, wfRel));
   }
   out.sort((a, b) => a.repo.localeCompare(b.repo) || a.name.localeCompare(b.name));
   return out;

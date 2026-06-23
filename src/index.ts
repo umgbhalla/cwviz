@@ -36,11 +36,18 @@ if (mode === "--runs") {
     console.log(`${g.error ? "⚠ " : ""}${g.repo.padEnd(22)} ${g.name.padEnd(34)} ${String(s.agents).padStart(3)}a ${s.parallel}∥ ${s.pipeline}⇶ ${g.declaredPhases.length}◷ ${s.loops ? "↻" : " "}`);
   }
 } else {
-  const [workflows, runs, sessions] = [await discover(base), discoverRuns(), discoverSessions()];
+  // Optional project allowlist (privacy / focused demos): CWVIZ_PROJECTS=ax2,bun
+  // matches any path segment of a workflow's repo or a run/session's project.
+  const allow = (process.env.CWVIZ_PROJECTS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const ok = (p: string) => allow.length === 0 || allow.some((t) => p.split("/").includes(t));
+  const runsOf = () => discoverRuns().filter((r) => ok(r.project));
+  const [workflows, runs, sessions] = [
+    (await discover(base)).filter((g) => ok(g.repo)), runsOf(), discoverSessions().filter((s) => ok(s.project)),
+  ];
   if (workflows.length === 0 && runs.length === 0 && sessions.length === 0) {
-    console.error(`Nothing found under ${base} or ~/.claude/projects.`);
+    console.error(`Nothing found under ${base} or ~/.claude/projects${allow.length ? ` (filter: ${allow.join(",")})` : ""}.`);
     process.exit(1);
   }
   const { launchUI } = await import("./ui.ts");
-  await launchUI({ workflows, runs, sessions, reloadRuns: () => discoverRuns() });
+  await launchUI({ workflows, runs, sessions, reloadRuns: runsOf });
 }

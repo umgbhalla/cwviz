@@ -78,6 +78,13 @@ cwviz --json [dir]    # full static analysis as JSON
 `dir` defaults to the current folder and is scanned recursively (skipping `node_modules`, `.git`,
 `worktrees`, `.deploy`). Runs and Sessions are read from `~/.claude/projects` (all repos).
 
+**Scope it** with `CWVIZ_PROJECTS` — a comma-separated allowlist matched against any path segment
+of a workflow's repo or a run/session's project. Useful for privacy or a focused view:
+
+```bash
+CWVIZ_PROJECTS=ax2,bun cwviz      # only the ax2 and bun repos in every mode
+```
+
 ### Keys
 
 `Tab` switch mode · `↑↓` / `j` `k` select · `/` filter · `esc` back to list · `PgUp` / `PgDn` scroll detail · `q` quit
