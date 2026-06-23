@@ -66,9 +66,18 @@ export function buildScene(renderer: CliRenderer, data: SceneData): () => void {
   renderer.root.add(root);
 
   const header = new BoxRenderable(renderer, { id: "header", width: "100%", height: 3, flexDirection: "column", paddingLeft: 1, borderColor: C.border, border: ["bottom"], backgroundColor: C.panel });
-  const headTitle = new TextRenderable(renderer, { content: "" });
+  const tabRow = new BoxRenderable(renderer, { id: "tabrow", flexDirection: "row", backgroundColor: C.panel });
+  const brand = new TextRenderable(renderer, { content: t`${bold(fg(C.head)("claude-workflow-viz"))}   ` });
+  // clickable mode tabs
+  const tabDefs: [Mode, string][] = [["workflows", "Workflows"], ["runs", "Runs"], ["sessions", "Sessions"]];
+  const tabs = tabDefs.map(([m, label]) => {
+    const tr = new TextRenderable(renderer, { content: label });
+    tr.onMouseDown = () => setMode(m);
+    return { m, label, tr };
+  });
+  tabRow.add(brand); tabs.forEach((x) => tabRow.add(x.tr));
   const headSub = new TextRenderable(renderer, { content: "" });
-  header.add(headTitle); header.add(headSub);
+  header.add(tabRow); header.add(headSub);
   root.add(header);
 
   const body = new BoxRenderable(renderer, { id: "body", width: "100%", flexGrow: 1, flexDirection: "row", backgroundColor: C.bg });
@@ -93,15 +102,14 @@ export function buildScene(renderer: CliRenderer, data: SceneData): () => void {
   right.add(detail);
 
   const footer = new BoxRenderable(renderer, { id: "footer", width: "100%", height: 1, paddingLeft: 1, backgroundColor: C.panel });
-  footer.add(new TextRenderable(renderer, { content: t`${fg(C.dim)("tab mode · ↑↓/jk select · / or ⌃K search · esc clear · PgUp/Dn scroll · q quit")}` }));
+  footer.add(new TextRenderable(renderer, { content: t`${fg(C.dim)("tab/click mode · ↑↓/jk/click select · scroll wheel · / or ⌃K search · esc clear · q quit")}` }));
   root.add(footer);
 
   const termW = () => Math.max(24, (renderer.terminalWidth ?? 120) - 48 - 6);
 
   // ── header ──
   function updateHeader() {
-    const tab = (m: Mode, label: string) => mode === m ? bold(fg(C.head)(`[${label}]`)) : fg(C.dim)(` ${label} `);
-    headTitle.content = t`${bold(fg(C.head)("claude-workflow-viz"))}   ${tab("workflows", "Workflows")}${tab("runs", "Runs")}${tab("sessions", "Sessions")}`;
+    for (const x of tabs) x.tr.content = mode === x.m ? t`${bold(fg(C.head)(`[${x.label}]`))}` : t`${fg(C.dim)(` ${x.label} `)}`;
     if (mode === "workflows") {
       const repos = new Set(workflows.map((g) => g.repo)).size;
       const agents = workflows.reduce((a, g) => a + g.stats.agents, 0);
@@ -271,6 +279,16 @@ export function buildScene(renderer: CliRenderer, data: SceneData): () => void {
   updateHeader();
   applyFilter("");
   select.focus();
+
+  // ── mouse ── (opencode pattern: per-renderable onMouse* handlers; useMouse on by default)
+  select.onMouseDown = (e) => {
+    const lpi = (select as any).linesPerItem || 1;     // 2 when descriptions shown
+    const off = (select as any).scrollOffset || 0;
+    const idx = off + Math.floor((e.y - select.y) / lpi);
+    if (idx >= 0 && idx < view.length) { selIdx = idx; try { select.selectedIndex = idx; } catch { /* */ } showDetail(view[idx]); }
+  };
+  select.onMouseScroll = (e) => { if (e.scroll?.direction === "down") select.moveDown(); else if (e.scroll?.direction === "up") select.moveUp(); };
+  detail.onMouseScroll = (e) => { detail.scrollTop = Math.max(0, detail.scrollTop + (e.scroll?.direction === "down" ? 3 : -3)); };
 
   // ── live polling (runs only) ──
   let timer: ReturnType<typeof setInterval> | null = null;

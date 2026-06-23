@@ -89,6 +89,8 @@ CWVIZ_PROJECTS=ax2,bun cwviz      # only the ax2 and bun repos in every mode
 
 `Tab` switch mode · `↑↓` / `j` `k` select · `/` or `Ctrl-K` search · `esc` clear search · `PgUp` / `PgDn` scroll detail · `q` quit
 
+**Mouse** (on by default): click a tab to switch mode, click a row to select it, scroll-wheel over the list or detail to scroll.
+
 ## How it works
 
 - **Workflows** — [`yuku-analyzer`](https://github.com/yuku-toolchain/yuku) parses each script
