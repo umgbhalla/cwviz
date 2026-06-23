@@ -1,0 +1,5 @@
+name = "cwviz-redirect"
+main = "worker.js"
+compatibility_date = "2026-06-23"
+# account_id via CLOUDFLARE_ACCOUNT_ID env. Custom domain provisions DNS+cert.
+routes = [{ pattern = "viz.quel.computer", custom_domain = true }]
