@@ -93,7 +93,7 @@ export function buildScene(renderer: CliRenderer, data: SceneData): () => void {
   right.add(detail);
 
   const footer = new BoxRenderable(renderer, { id: "footer", width: "100%", height: 1, paddingLeft: 1, backgroundColor: C.panel });
-  footer.add(new TextRenderable(renderer, { content: t`${fg(C.dim)("tab mode · ↑↓/jk select · / filter · esc list · PgUp/Dn scroll · q quit")}` }));
+  footer.add(new TextRenderable(renderer, { content: t`${fg(C.dim)("tab mode · ↑↓/jk select · / or ⌃K search · esc clear · PgUp/Dn scroll · q quit")}` }));
   root.add(footer);
 
   const termW = () => Math.max(24, (renderer.terminalWidth ?? 120) - 48 - 6);
@@ -260,8 +260,12 @@ export function buildScene(renderer: CliRenderer, data: SceneData): () => void {
   function setMode(m: Mode) { mode = m; filter.value = ""; updateHeader(); applyFilter(""); }
 
   let selIdx = 0;
+  let swallow = false; // eat the "/" that leaks into the input when "/" opens search
   select.on(SelectRenderableEvents.SELECTION_CHANGED, (i: number) => { selIdx = i; showDetail(view[i]); });
-  filter.on(InputRenderableEvents.INPUT, (v: string) => applyFilter(v));
+  filter.on(InputRenderableEvents.INPUT, (v: string) => {
+    if (swallow) { swallow = false; const real = v.replace(/^\//, ""); if (real !== v) { filter.value = real; applyFilter(real); return; } }
+    applyFilter(v);
+  });
 
   updateHeader();
   applyFilter("");
@@ -277,17 +281,36 @@ export function buildScene(renderer: CliRenderer, data: SceneData): () => void {
       if (mode === "runs") { updateHeader(); if (changed) applyFilter(filter.value, view[selIdx]?.runId); }
     }, 1500);
   }
-  const cleanup = () => { if (timer) clearInterval(timer); closeSesWatcher(); };
+  let quitting = false;
+  const cleanup = () => { if (timer) { clearInterval(timer); timer = null; } closeSesWatcher(); };
+  // Mirror opentui's own ctrl-c teardown: clear our handles, destroy (restores the
+  // terminal, deferred until the frame unwinds), let the loop drain. No racing
+  // process.exit — that skipped the deferred restore and left the terminal sticky.
+  const quit = () => {
+    if (quitting) return; quitting = true;
+    cleanup();
+    renderer.destroy();
+    setTimeout(() => process.exit(0), 150); // fallback if something keeps the loop alive
+  };
 
   // ── keys ──
-  const focusList = () => { filter.blur(); select.focus(); left.borderColor = C.border; };
-  const focusFilter = () => { select.blur(); filter.focus(); left.borderColor = C.borderFocus; };
+  const focusList = (clearQuery: boolean) => {
+    if (clearQuery && filter.value) { filter.value = ""; applyFilter(""); }
+    filter.blur(); select.focus(); left.borderColor = C.border;
+  };
+  const openSearch = () => { swallow = true; select.blur(); filter.value = ""; filter.focus(); left.borderColor = C.borderFocus; applyFilter(""); };
   renderer.keyInput.on("keypress", (key: KeyEvent) => {
-    if (filter.focused) { if (key.name === "return" || key.name === "escape") focusList(); return; }
-    if (key.name === "q") { cleanup(); renderer.destroy(); process.exit(0); }
+    if (key.name === "c" && key.ctrl) return quit(); // explicit, in case exitOnCtrlC misses
+    if (filter.focused) {
+      if (key.name === "return") focusList(false);     // commit search, keep results
+      else if (key.name === "escape") focusList(true);  // cancel search, restore full list
+      return;
+    }
+    if (key.name === "q") quit();
+    else if (key.name === "k" && key.ctrl) openSearch(); // Ctrl-K quick switcher
     else if (key.name === "tab") setMode(ORDER[(ORDER.indexOf(mode) + (key.shift ? ORDER.length - 1 : 1)) % ORDER.length]);
-    else if (key.name === "/") focusFilter();
-    else if (key.name === "escape") focusList();
+    else if (key.name === "/") openSearch();
+    else if (key.name === "escape") focusList(true);
     else if (key.name === "pageup") detail.scrollTop = Math.max(0, detail.scrollTop - 12);
     else if (key.name === "pagedown") detail.scrollTop += 12;
   });

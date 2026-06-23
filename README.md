@@ -87,7 +87,7 @@ CWVIZ_PROJECTS=ax2,bun cwviz      # only the ax2 and bun repos in every mode
 
 ### Keys
 
-`Tab` switch mode · `↑↓` / `j` `k` select · `/` filter · `esc` back to list · `PgUp` / `PgDn` scroll detail · `q` quit
+`Tab` switch mode · `↑↓` / `j` `k` select · `/` or `Ctrl-K` search · `esc` clear search · `PgUp` / `PgDn` scroll detail · `q` quit
 
 ## How it works
 
