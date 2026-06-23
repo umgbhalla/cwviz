@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.log
+.env
+# raw termctrl recording + intermediate video (the committed demo.gif is enough)
+assets/*.termctrl
+assets/*.mp4

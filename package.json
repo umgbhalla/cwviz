@@ -1,0 +1,24 @@
+{
+  "name": "claude-workflow-viz",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": { "cwviz": "src/index.ts" },
+  "scripts": {
+    "start": "bun src/index.ts",
+    "list": "bun src/index.ts --list",
+    "json": "bun src/index.ts --json",
+    "runs": "bun src/index.ts --runs",
+    "check": "tsc --noEmit",
+    "test": "bun src/analyze.test.ts && bun src/runs.test.ts && bun src/sessions.test.ts && bun src/ui.test.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.4.1",
+    "yuku-analyzer": "^0.5.41"
+  }
+}
