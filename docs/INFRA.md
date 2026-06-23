@@ -67,6 +67,8 @@ Verified empirically (file mtimes vs message timestamps):
 2. **Live runs** — a running workflow has **no journal yet**, so mid-run state can't come from
    `wf_*.json`. The live signal is: a `scripts/<name>-wf_<id>.js` with no journal ⇒ in-flight, and its
    agents' `subagents/agent-*.jsonl` are appended live ⇒ tail them to reconstruct what each agent is
-   doing right now. (cwviz currently flags in-flight runs and polls the dir for the completion journal;
-   subagent-tail reconstruction is the next step.)
+   doing right now. cwviz implements this: an in-flight run is reconstructed by tailing its
+   `subagents/workflows/<runId>/agent-*.jsonl` (state from append-freshness, current tool + counts
+   from the transcript tail, agent type from the sibling `.meta.json`), and the dir is polled for the
+   completion journal that supersedes it.
 3. **History** — completed journals appear atomically; watching the `workflows/` dir catches them.

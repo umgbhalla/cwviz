@@ -43,4 +43,21 @@ assert(r.phases.find((p) => p.title === "Verify")!.agents[0].state === "progress
 const orphan = runs.find((x) => x.runId === "wf_xyz");
 assert(orphan && orphan.status === "running" && orphan.live, "fresh orphan script surfaced as running/live");
 
-console.log("ok — runs.test passed (journal + orphan discovery)");
+// in-flight run reconstructed from live subagent transcripts (no journal yet)
+const liveDir = join(root, "-Users-x-proj", "sess1234abcd", "subagents", "workflows", "wf_live");
+mkdirSync(liveDir, { recursive: true });
+writeFileSync(join(wfDir, "scripts", "deep-audit-wf_live.js"), "export const meta={name:'deep-audit'}");
+writeFileSync(join(liveDir, "agent-a1b2c3d4e5.meta.json"), JSON.stringify({ agentType: "Explore" }));
+writeFileSync(join(liveDir, "agent-a1b2c3d4e5.jsonl"), [
+  { type: "user", message: { role: "user", content: "audit the auth path" } },
+  { type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", name: "Grep", input: { pattern: "token" } }] } },
+].map((l) => JSON.stringify(l)).join("\n") + "\n");
+
+const runs2 = discoverRuns(root);
+const liveRun = runs2.find((x) => x.runId === "wf_live")!;
+assert(liveRun && liveRun.status === "running", "in-flight run surfaced");
+assert(liveRun.agentCount === 1, "live agent reconstructed, got " + liveRun.agentCount);
+const la = liveRun.phases[0]?.agents[0];
+assert(la?.agentType === "Explore" && la?.lastToolName === "Grep" && la?.state === "progress", "live agent: type+lastTool+progress from fresh transcript");
+
+console.log("ok — runs.test passed (journal + orphan + live in-flight discovery)");

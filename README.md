@@ -29,7 +29,7 @@ every conversation is a `.jsonl` transcript. **cwviz reads all three and shows t
 | Mode | What it shows | Source |
 |------|---------------|--------|
 | **Workflows** | The *blueprint* — phase tree, every `agent()` call with its `agentType` / `schema` / `model`, `parallel`/`pipeline` fan-out, loops. | `.claude/workflows/*.js`, parsed with [yuku](https://github.com/yuku-toolchain/yuku) — **never executed** |
-| **Runs** | Live + historical *executions* — per-agent state (`✓` done · `●` running · `✗` error · `◌` queued), the tool each agent is on, tokens, tool calls, duration, result previews. Auto-refreshes. | `~/.claude/projects/**/workflows/wf_*.json` journals |
+| **Runs** | Live + historical *executions* — per-agent state (`✓` done · `●` running · `✗` error · `◌` queued), the tool each agent is on, tokens, tool calls, duration, result previews. A workflow running **right now** shows up `● LIVE` with its agents reconstructed from their live subagent transcripts. Auto-refreshes. | `wf_*.json` journals + live `subagents/` tail |
 | **Sessions** | The *chat history* — full transcript: prompts, replies, tool calls, results, collapsed thinking. | `~/.claude/projects/**/*.jsonl` transcripts (lazy-loaded) |
 
 <table>

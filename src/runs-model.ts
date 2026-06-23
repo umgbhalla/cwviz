@@ -12,6 +12,7 @@ export interface RunAgent {
   phaseTitle?: string;
   agentId?: string;
   model?: string;
+  agentType?: string;
   state: AgentState;
   lastToolName?: string;
   lastToolSummary?: string;

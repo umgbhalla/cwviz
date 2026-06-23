@@ -179,7 +179,7 @@ export function buildScene(renderer: CliRenderer, data: SceneData): () => void {
   function renderSession(line: (c: any) => void, s: SessionMeta, w: number) {
     try { const st = statSync(s.filePath); s.mtime = st.mtimeMs; s.sizeBytes = st.size; } catch { /* gone */ }
     let tr = tCache.get(s.id);
-    if (!tr) { tr = loadTranscript(s); tCache.set(s.id, tr); }
+    if (!tr) { tr = loadTranscript(s); tCache.set(s.id, tr); if (tCache.size > 40) tCache.delete(tCache.keys().next().value!); }
     const liveNow = Date.now() - s.mtime < 60_000;
     line(t`${bold(fg(C.name)(s.title))}${liveNow ? fg(C.live)("  ● LIVE") : ""}`);
     line(t`${fg(C.repo)(s.project)}${fg(C.dim)(" · " + s.short + (s.gitBranch ? " · " + s.gitBranch : ""))}`);
@@ -222,6 +222,7 @@ export function buildScene(renderer: CliRenderer, data: SceneData): () => void {
     content = new BoxRenderable(renderer, { id: "detail-content", width: "100%", flexDirection: "column", backgroundColor: C.bg });
     detail.add(content);
     const line = (c: any) => content!.add(new TextRenderable(renderer, { content: c }));
+    if (item.empty) { line(t`${fg(C.dim)("No matches.")}`); return; }
     if (mode === "workflows") renderWorkflow(line, item, termW());
     else if (mode === "runs") renderRun(line, item, termW());
     else renderSession(line, item, termW());
@@ -251,7 +252,9 @@ export function buildScene(renderer: CliRenderer, data: SceneData): () => void {
     select.options = view.map(optionFor);
     left.title = ` ${mode} (${view.length}) `;
     const idx = keepId ? Math.max(0, view.findIndex((x) => (x.runId ?? x.id ?? x.file) === keepId)) : 0;
-    showDetail(view[idx]);
+    selIdx = idx;
+    try { select.selectedIndex = idx; } catch { /* older opentui */ }
+    showDetail(view[idx] ?? { empty: true }); // explicit empty-state when no matches
   }
 
   function setMode(m: Mode) { mode = m; filter.value = ""; updateHeader(); applyFilter(""); }

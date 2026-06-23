@@ -45,7 +45,7 @@ function fromJournal(file: string, project: string, session: string): RunGraph |
   let o: any;
   try { o = JSON.parse(readFileSync(file, "utf8")); } catch { return null; }
   const mtime = statSync(file).mtimeMs;
-  const start = o.startTime ?? Date.parse(o.timestamp ?? "") ?? mtime;
+  const start = o.startTime ?? (o.timestamp ? Date.parse(o.timestamp) : mtime); // avoid Date.parse("")===NaN
   const { phases, agents } = buildPhases(o.workflowProgress ?? [], o.phases ?? []);
   const status: RunStatus = (o.status as RunStatus) ?? "completed";
   const logs = (o.logs ?? []).map((l: any) => (typeof l === "string" ? l : JSON.stringify(l)));
@@ -64,9 +64,60 @@ function fromJournal(file: string, project: string, session: string): RunGraph |
   };
 }
 
-// In-flight: a script whose runId has no journal yet (running, or crashed).
-// Only surfaced when recently touched, to avoid stale-crash noise.
-function orphanRuns(wfDir: string, project: string, session: string, journalIds: Set<string>): RunGraph[] {
+// Reconstruct a RUNNING workflow's agents live by tailing their subagent
+// transcripts at <project>/<session>/subagents/workflows/<runId>/agent-*.jsonl
+// (appended in real time). The journal isn't on disk until the run ends, so
+// this is the only mid-run source. Returns [] if the dir isn't found.
+const FRESH_MS = 20_000; // appended this recently => still working
+function liveAgentsForRun(runId: string, root: string): RunAgent[] {
+  // find the subagents dir for this runId across projects/sessions (cheap stat probe)
+  let dir: string | null = null;
+  try {
+    outer: for (const p of readdirSync(root)) {
+      const pdir = join(root, p);
+      let sessions: string[];
+      try { if (!statSync(pdir).isDirectory()) continue; sessions = readdirSync(pdir); } catch { continue; }
+      for (const s of sessions) {
+        const cand = join(pdir, s, "subagents", "workflows", runId);
+        if (existsSync(cand)) { dir = cand; break outer; }
+      }
+    }
+  } catch { /* */ }
+  if (!dir) return [];
+  const agents: RunAgent[] = [];
+  let entries: string[];
+  try { entries = readdirSync(dir); } catch { return []; }
+  for (const f of entries.filter((x) => x.endsWith(".jsonl"))) {
+    const full = join(dir, f);
+    const id = f.replace(/^agent-/, "").replace(/\.jsonl$/, "");
+    let agentType: string | undefined;
+    try { agentType = JSON.parse(readFileSync(join(dir, `agent-${id}.meta.json`), "utf8")).agentType; } catch { /* */ }
+    let lines: string[] = [], mtime = 0;
+    try { lines = readFileSync(full, "utf8").trim().split("\n"); mtime = statSync(full).mtimeMs; } catch { continue; }
+    let lastTool: string | undefined, lastText: string | undefined, tools = 0, prompt: string | undefined, done = false;
+    for (const line of lines) {
+      let o: any; try { o = JSON.parse(line); } catch { continue; }
+      if (o.type === "user" && typeof o.message?.content === "string" && !prompt) prompt = o.message.content.replace(/\s+/g, " ").slice(0, 120);
+      else if (o.type === "assistant") for (const part of o.message?.content ?? []) {
+        if (part.type === "tool_use") { tools++; lastTool = part.name; if (part.name === "StructuredOutput") done = true; }
+        else if (part.type === "text" && part.text?.trim()) lastText = part.text.replace(/\s+/g, " ").slice(0, 120);
+      }
+    }
+    const fresh = Date.now() - mtime < FRESH_MS;
+    agents.push({
+      index: agents.length + 1, label: agentType ? `${agentType}:${id.slice(0, 6)}` : id.slice(0, 10),
+      agentType, state: done ? "done" : fresh ? "progress" : "start",
+      lastToolName: lastTool, lastToolSummary: lastText, promptPreview: prompt, toolCalls: tools, startedAt: mtime,
+    });
+  }
+  return agents;
+}
+
+// In-flight: a script whose runId has no journal yet. The script mtime is set
+// once at START, so liveness is judged by FRESH subagent transcripts, not the
+// script age (a long run would otherwise look stale). A run with no live agents
+// and an old script is a crash — skipped.
+function orphanRuns(wfDir: string, project: string, session: string, journalIds: Set<string>, root: string): RunGraph[] {
   const sdir = join(wfDir, "scripts");
   if (!existsSync(sdir)) return [];
   const out: RunGraph[] = [];
@@ -76,11 +127,17 @@ function orphanRuns(wfDir: string, project: string, session: string, journalIds:
     const [, name, runId] = m;
     if (journalIds.has(runId)) continue;
     const full = join(sdir, f);
-    const mtime = statSync(full).mtimeMs;
-    if (Date.now() - mtime > LIVE_WINDOW_MS) continue; // stale orphan, skip
+    const scriptMtime = statSync(full).mtimeMs;
+    const agents = liveAgentsForRun(runId, root);
+    const working = agents.some((a) => a.state === "progress");
+    const scriptFresh = Date.now() - scriptMtime < LIVE_WINDOW_MS;
+    if (!working && !scriptFresh) continue; // crashed/stale orphan, no live agents
+    const mtime = Math.max(scriptMtime, ...agents.map((a) => a.startedAt ?? 0));
+    const phases = agents.length ? [{ index: 1, title: "(live agents)", agents }] : [];
     out.push({
-      runId, name, status: "running", project, session: session.slice(0, 8), startTime: mtime, mtime,
-      agentCount: 0, logs: [], phases: [], scriptPath: full, live: true,
+      runId, name, status: "running", project, session: session.slice(0, 8), startTime: scriptMtime, mtime,
+      agentCount: agents.length, totalToolCalls: agents.reduce((a, x) => a + (x.toolCalls ?? 0), 0),
+      logs: [], phases, scriptPath: full, live: true,
     });
   }
   return out;
@@ -106,7 +163,7 @@ export function discoverRuns(root: string = PROJECTS_ROOT): RunGraph[] {
         const g = fromJournal(join(wfDir, f), proj, s);
         if (g) { out.push(g); journalIds.add(g.runId); }
       }
-      out.push(...orphanRuns(wfDir, proj, s, journalIds));
+      out.push(...orphanRuns(wfDir, proj, s, journalIds, root));
     }
   }
   out.sort((a, b) => Number(b.live) - Number(a.live) || b.startTime - a.startTime);

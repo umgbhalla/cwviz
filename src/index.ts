@@ -19,14 +19,15 @@ const base = (positional ?? process.cwd()).replace(/\/$/, "");
 
 if (mode === "--runs") {
   const runs = discoverRuns();
-  const n = Number(positional) || 40;
+  const n = positional !== undefined ? Number(positional) : 40;
   console.log(`${runs.length} runs · ${runs.filter((r) => r.live).length} live · showing newest ${Math.min(n, runs.length)}\n`);
   for (const r of runs.slice(0, n)) {
     const g = { completed: "✓", running: "●", killed: "⊘", failed: "✗" }[r.status] ?? "?";
     console.log(`${g} ${r.project.padEnd(22)} ${r.name.padEnd(30)} ${String(r.agentCount).padStart(3)}a ${String(Math.round((r.totalTokens ?? 0) / 1000)).padStart(5)}k ${r.phases.length}◷  ${r.status}`);
   }
 } else if (mode === "--json") {
-  console.log(JSON.stringify(await discover(base), null, 2));
+  // redact the absolute `file` path (repo+rel already locate it) to avoid leaking FS layout
+  console.log(JSON.stringify(await discover(base), (k, v) => (k === "file" ? undefined : v), 2));
 } else if (mode === "--list") {
   const graphs = await discover(base);
   const repos = new Set(graphs.map((g) => g.repo)).size;
