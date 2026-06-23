@@ -95,7 +95,13 @@ cwviz --json [dir]    # full static analysis as JSON
   start-written `workflows/scripts/<name>-<runId>.js` that have no journal yet; the list
   auto-refreshes every 1.5s so a running workflow appears and updates live.
 - **Sessions** — transcripts are large, so the list is built from a cheap head-read (title +
-  metadata) and the full transcript is parsed only when you select a session.
+  metadata) and the full transcript is parsed only when you select a session. The selected
+  session's `.jsonl` is **`fs.watch`ed** — Claude Code appends it per message, so the transcript
+  re-renders in real time and an active session is marked `● LIVE`. No polling.
+
+The exact on-disk layout, line schemas, and write cadence — reverse-engineered from the Claude
+Code binary with [bun-demincer](https://github.com/vicnaum/bun-demincer) and verified empirically
+— are documented in [`docs/INFRA.md`](docs/INFRA.md).
 
 ## Project layout
 
@@ -122,6 +128,7 @@ and asserts against the captured cell grid — no PTY needed.
 - [**opentui**](https://github.com/anomalyco/opentui) — the native (Zig) terminal UI core that powers the interface
 - [**yuku**](https://github.com/yuku-toolchain/yuku) — the Zig JS/TS toolchain whose analyzer parses the workflow scripts
 - [**terminal-control**](https://github.com/kitlangton/terminal-control) (`termctrl`) — drove the real TUI in a PTY to capture every screenshot and the demo above
+- [**bun-demincer**](https://github.com/vicnaum/bun-demincer) — extracted the Claude Code binary to map its on-disk infra (see [`docs/INFRA.md`](docs/INFRA.md))
 - [**termcast**](https://github.com/kitlangton/termcast) — reference for opentui app patterns
 - [**Bun**](https://bun.sh) — runtime; runs the TypeScript directly, no build step
 

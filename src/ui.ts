@@ -11,6 +11,7 @@ import type { WorkflowGraph } from "./model.ts";
 import type { RunGraph, RunAgent } from "./runs-model.ts";
 import type { SessionMeta, SessionTranscript } from "./sessions-model.ts";
 import { loadTranscript } from "./sessions.ts";
+import { watch, statSync, type FSWatcher } from "node:fs";
 
 const C = {
   bg: "#0b0e14", panel: "#0e131b", border: "#2a3343", borderFocus: "#7aa2f7",
@@ -176,9 +177,11 @@ export function buildScene(renderer: CliRenderer, data: SceneData): () => void {
   }
 
   function renderSession(line: (c: any) => void, s: SessionMeta, w: number) {
+    try { const st = statSync(s.filePath); s.mtime = st.mtimeMs; s.sizeBytes = st.size; } catch { /* gone */ }
     let tr = tCache.get(s.id);
     if (!tr) { tr = loadTranscript(s); tCache.set(s.id, tr); }
-    line(t`${bold(fg(C.name)(s.title))}`);
+    const liveNow = Date.now() - s.mtime < 60_000;
+    line(t`${bold(fg(C.name)(s.title))}${liveNow ? fg(C.live)("  ● LIVE") : ""}`);
     line(t`${fg(C.repo)(s.project)}${fg(C.dim)(" · " + s.short + (s.gitBranch ? " · " + s.gitBranch : ""))}`);
     line(t` `);
     line(t`${fg(C.user)(`${tr.userCount} prompts`)}${fg(C.dim)(" · ")}${fg(C.agent)(`${tr.assistantCount} replies`)}${fg(C.dim)(" · ")}${fg(C.tool)(`${tr.toolCount} tools`)}${fg(C.dim)(" · ")}${fg(C.model)(tr.models.join(", ") || "—")}${fg(C.dim)(` · ${fmtKB(s.sizeBytes)} · ${ago(s.mtime)} ago`)}`);
@@ -206,7 +209,13 @@ export function buildScene(renderer: CliRenderer, data: SceneData): () => void {
     return hay.includes(q);
   }
 
-  function showDetail(item: any) {
+  // fs.watch the selected session's transcript → live re-render on append.
+  // (session .jsonl is appended per-message, so this is true real-time, no polling.)
+  let sesWatcher: FSWatcher | null = null;
+  let sesDebounce: ReturnType<typeof setTimeout> | null = null;
+  function closeSesWatcher() { if (sesWatcher) { sesWatcher.close(); sesWatcher = null; } if (sesDebounce) { clearTimeout(sesDebounce); sesDebounce = null; } }
+
+  function buildDetail(item: any, toBottom = false) {
     if (content) { detail.remove(content.id); content.destroyRecursively(); content = null; }
     detail.scrollTop = 0;
     if (!item) return;
@@ -216,6 +225,24 @@ export function buildScene(renderer: CliRenderer, data: SceneData): () => void {
     if (mode === "workflows") renderWorkflow(line, item, termW());
     else if (mode === "runs") renderRun(line, item, termW());
     else renderSession(line, item, termW());
+    if (toBottom) detail.scrollTop = Number.MAX_SAFE_INTEGER; // live tail jumps to newest
+  }
+
+  function showDetail(item: any) {
+    closeSesWatcher();
+    buildDetail(item);
+    if (mode === "sessions" && item?.filePath) {
+      try {
+        sesWatcher = watch(item.filePath, () => {
+          if (sesDebounce) clearTimeout(sesDebounce);
+          sesDebounce = setTimeout(() => {
+            if (mode !== "sessions" || view[selIdx] !== item) return; // selection moved
+            tCache.delete(item.id);
+            buildDetail(item, true);
+          }, 200);
+        });
+      } catch { /* file vanished */ }
+    }
   }
 
   function applyFilter(q: string, keepId?: string) {
@@ -247,7 +274,7 @@ export function buildScene(renderer: CliRenderer, data: SceneData): () => void {
       if (mode === "runs") { updateHeader(); if (changed) applyFilter(filter.value, view[selIdx]?.runId); }
     }, 1500);
   }
-  const cleanup = () => { if (timer) clearInterval(timer); };
+  const cleanup = () => { if (timer) clearInterval(timer); closeSesWatcher(); };
 
   // ── keys ──
   const focusList = () => { filter.blur(); select.focus(); left.borderColor = C.border; };
