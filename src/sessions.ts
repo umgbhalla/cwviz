@@ -68,13 +68,29 @@ function parseLine(o: any, out: ChatMsg[], counts: { u: number; a: number; t: nu
   }
 }
 
+const TAIL_THRESHOLD = 1_500_000; // above this, read only the tail (avoid parsing a 15MB transcript on the render path)
+const TAIL_BYTES = 800_000;
+
 export function loadTranscript(meta: SessionMeta): SessionTranscript {
   const out: ChatMsg[] = [];
   const counts = { u: 0, a: 0, t: 0, models: new Set<string>() };
-  let lines: string[] = [];
-  try { lines = readFileSync(meta.filePath, "utf8").split("\n"); } catch { /* gone */ }
-  for (const line of lines) { if (!line.trim()) continue; try { parseLine(JSON.parse(line), out, counts); } catch { /* skip */ } }
-  return { meta, messages: out, userCount: counts.u, assistantCount: counts.a, toolCount: counts.t, models: [...counts.models] };
+  let text = "", tailed = false;
+  try {
+    const size = statSync(meta.filePath).size;
+    if (size > TAIL_THRESHOLD) {
+      tailed = true;
+      const fd = openSync(meta.filePath, "r");
+      try {
+        const buf = Buffer.alloc(TAIL_BYTES);
+        const n = readSync(fd, buf, 0, TAIL_BYTES, size - TAIL_BYTES);
+        text = buf.toString("utf8", 0, n).replace(/^[^\n]*\n/, ""); // drop the partial first line
+      } finally { closeSync(fd); }
+    } else {
+      text = readFileSync(meta.filePath, "utf8");
+    }
+  } catch { /* gone */ }
+  for (const line of text.split("\n")) { if (!line.trim()) continue; try { parseLine(JSON.parse(line), out, counts); } catch { /* skip */ } }
+  return { meta, messages: out, userCount: counts.u, assistantCount: counts.a, toolCount: counts.t, models: [...counts.models], tailed };
 }
 
 export function discoverSessions(root: string = PROJECTS_ROOT): SessionMeta[] {

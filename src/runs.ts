@@ -143,6 +143,13 @@ function orphanRuns(wfDir: string, project: string, session: string, journalIds:
   return out;
 }
 
+// Completed journals are immutable once written, so cache parsed runs by
+// path+mtime: the 1.5s poll then only stats files instead of re-parsing 700+
+// JSON blobs each tick. `live` is wall-clock-relative, so recompute it on read.
+const journalCache = new Map<string, { mtime: number; run: RunGraph }>();
+const recomputeLive = (g: RunGraph): boolean =>
+  g.status === "running" || Date.now() - (g.startTime + (g.durationMs ?? 0)) < LIVE_WINDOW_MS;
+
 export function discoverRuns(root: string = PROJECTS_ROOT): RunGraph[] {
   const out: RunGraph[] = [];
   let projects: string[];
@@ -160,7 +167,13 @@ export function discoverRuns(root: string = PROJECTS_ROOT): RunGraph[] {
       try { entries = readdirSync(wfDir); } catch { continue; }
       for (const f of entries) {
         if (!f.endsWith(".json")) continue;
-        const g = fromJournal(join(wfDir, f), proj, s);
+        const full = join(wfDir, f);
+        let mtime: number;
+        try { mtime = statSync(full).mtimeMs; } catch { continue; }
+        const hit = journalCache.get(full);
+        let g: RunGraph | null;
+        if (hit && hit.mtime === mtime) { g = hit.run; g.live = recomputeLive(g); }
+        else { g = fromJournal(full, proj, s); if (g) journalCache.set(full, { mtime, run: g }); }
         if (g) { out.push(g); journalIds.add(g.runId); }
       }
       out.push(...orphanRuns(wfDir, proj, s, journalIds, root));

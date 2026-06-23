@@ -30,4 +30,5 @@ export interface SessionTranscript {
   assistantCount: number;
   toolCount: number;
   models: string[];
+  tailed: boolean; // large file: only the tail was read, counts are of the tail
 }

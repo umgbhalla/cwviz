@@ -187,6 +187,7 @@ export function buildScene(renderer: CliRenderer, data: SceneData): () => void {
     line(t`${fg(C.user)(`${tr.userCount} prompts`)}${fg(C.dim)(" · ")}${fg(C.agent)(`${tr.assistantCount} replies`)}${fg(C.dim)(" · ")}${fg(C.tool)(`${tr.toolCount} tools`)}${fg(C.dim)(" · ")}${fg(C.model)(tr.models.join(", ") || "—")}${fg(C.dim)(` · ${fmtKB(s.sizeBytes)} · ${ago(s.mtime)} ago`)}`);
     line(t` `);
     line(t`${bold(fg(C.head)("TRANSCRIPT"))}`);
+    if (tr.tailed) line(t`${fg(C.dim)("large session — showing the recent tail only")}`);
     const MAX = 300;
     const msgs = tr.messages.length > MAX ? tr.messages.slice(-MAX) : tr.messages;
     if (tr.messages.length > MAX) line(t`${fg(C.dim)(`… ${tr.messages.length - MAX} earlier messages hidden — showing latest ${MAX}`)}`);
@@ -275,10 +276,12 @@ export function buildScene(renderer: CliRenderer, data: SceneData): () => void {
   let timer: ReturnType<typeof setInterval> | null = null;
   if (data.reloadRuns) {
     timer = setInterval(() => {
+      if (mode !== "runs") return; // only pay the scan cost while the user is watching Runs
       const next = data.reloadRuns!();
       const changed = next.length !== runs.length || next.some((r, i) => runs[i]?.runId !== r.runId || runs[i]?.mtime !== r.mtime);
       runs = next;
-      if (mode === "runs") { updateHeader(); if (changed) applyFilter(filter.value, view[selIdx]?.runId); }
+      updateHeader();
+      if (changed) applyFilter(filter.value, view[selIdx]?.runId);
     }, 1500);
   }
   let quitting = false;
